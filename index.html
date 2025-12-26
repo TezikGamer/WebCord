@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebCord Neon</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:Inter,Arial,sans-serif}
+
+    :root{
+      --bg:#0e1016;
+      --panel:#161922cc;
+      --accent:#5865f2;
+      --accent-glow:#5865f2aa;
+      --text:#e6e7ea;
+      --muted:#9da2ad;
+    }
+
+    body{
+      height:100vh;display:flex;color:var(--text);overflow:hidden;
+      background:
+        radial-gradient(circle at 15% 20%, #5865f233, transparent 40%),
+        radial-gradient(circle at 85% 80%, #3ba9ff22, transparent 40%),
+        linear-gradient(120deg, #0b0d13, #0f1220);
+      animation:bgMove 18s ease-in-out infinite alternate;
+    }
+    @keyframes bgMove{from{background-position:0 0}to{background-position:100% 100%}}
+
+    .servers{width:72px;background:var(--panel);backdrop-filter:blur(10px);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:10px}
+    .server{width:48px;height:48px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent-glow);display:flex;align-items:center;justify-content:center;font-weight:700;cursor:pointer;transition:.2s}
+    .server:hover{border-radius:16px}
+
+    .left{width:260px;display:flex;flex-direction:column;background:var(--panel);backdrop-filter:blur(10px)}
+
+    .channels{flex:1;padding:12px;overflow-y:auto}
+    .section{margin-bottom:12px}
+    .section-title{font-size:12px;color:var(--muted);margin:6px 8px}
+    .channel{padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;transition:.15s}
+    .channel:hover{background:#2a2e3a}
+    .channel.active{background:var(--accent);box-shadow:0 0 8px var(--accent-glow)}
+
+    .profile-bar{height:76px;border-top:1px solid #2a2e3a;display:flex;align-items:center;gap:10px;padding:10px}
+    .avatar{width:40px;height:40px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;flex-shrink:0}
+    .avatar img{width:100%;height:100%;object-fit:cover}
+    .profile-info{flex:1}
+    .profile-info b{display:block;font-size:14px}
+    .profile-info span{font-size:12px;color:var(--muted)}
+
+    .chat{flex:1;display:flex;flex-direction:column}
+    .chat-header{height:48px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid #2a2e3a;background:#0f1220cc}
+    .messages{flex:1;padding:16px;overflow-y:auto}
+    .message{margin-bottom:10px;animation:fade .2s ease}
+    .user{font-weight:600;color:#57f287}
+
+    .input{padding:8px;background:#0f1220cc}
+    .input input{width:100%;height:40px;border:none;border-radius:8px;padding:0 12px;background:#0b0d13;color:var(--text)}
+
+    .auth{position:fixed;inset:0;background:#000d;display:flex;align-items:center;justify-content:center;z-index:10}
+    .auth-box{width:320px;background:#0f1220;padding:20px;border-radius:12px}
+    .auth-box input{width:100%;padding:8px;margin-bottom:10px;background:#0b0d13;color:var(--text);border:none;border-radius:6px}
+    .auth-box button{width:100%;padding:8px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer}
+
+    @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  </style>
+</head>
+<body>
+
+<div class="auth" id="auth">
+  <div class="auth-box">
+    <h3>Запуск WebCord</h3>
+    <input id="username" placeholder="Ник" />
+    <input id="nickname" placeholder="Псевдоним" />
+    <button id="loginBtn">Запустить</button>
+  </div>
+</div>
+
+<div class="servers" id="servers"></div>
+
+<div class="left">
+  <div class="channels">
+    <div class="section">
+      <div class="section-title">ТЕКСТОВЫЕ</div>
+      <div class="channel active" data-channel="# общий"># общий</div>
+      <div class="channel" data-voice>🔊 Голосовой</div>
+    </div>
+    <div class="section">
+      <div class="section-title">ЛИЧНЫЕ СООБЩЕНИЯ</div>
+      <div class="channel" data-dm="Support">💬 Support</div>
+      <div class="channel" data-dm="Friend">💬 Friend</div>
+    </div>
+  </div>
+
+  <div class="profile-bar">
+    <div class="avatar" id="avatar">👤</div>
+    <div class="profile-info">
+      <b id="me">User</b>
+      <span id="pronouns">местоимения</span>
+    </div>
+  </div>
+</div>
+
+<div class="chat">
+  <div class="chat-header"><span id="channelName"># общий</span></div>
+  <div class="messages" id="messages"></div>
+  <div class="input"><input id="msg" placeholder="Написать сообщение..." /></div>
+</div>
+
+<script>
+// ===== state =====
+let servers=['WC'];
+let currentUser='';
+let displayName='';
+let micStream=null;
+
+// ===== elements =====
+const auth=document.getElementById('auth');
+const messages=document.getElementById('messages');
+const channelName=document.getElementById('channelName');
+const serversEl=document.getElementById('servers');
+const msgInput=document.getElementById('msg');
+
+// ===== init =====
+const savedUser=localStorage.getItem('user');
+if(savedUser){
+  const u=JSON.parse(savedUser);
+  currentUser=u.name;
+  displayName=u.displayName;
+  document.getElementById('me').textContent=displayName;
+  auth.style.display='none';
+  systemMsg('С возвращением, '+displayName);
+}
+
+const savedServers=localStorage.getItem('servers');
+if(savedServers){ servers=JSON.parse(savedServers); }
+
+document.getElementById('loginBtn').addEventListener('click', login);
+renderServers();
+bindChannels();
+bindMessageInput();
+
+// ===== functions =====
+function login(){
+  const name=document.getElementById('username').value.trim();
+  const nick=document.getElementById('nickname').value.trim();
+  if(!name) return alert('Введите ник');
+  currentUser=name;
+  displayName=nick||name;
+  document.getElementById('me').textContent=displayName;
+  localStorage.setItem('user',JSON.stringify({name,displayName}));
+  auth.style.display='none';
+  systemMsg('WebCord запущен. Добро пожаловать, '+displayName);
+}
+
+function systemMsg(text){
+  const div=document.createElement('div');
+  div.className='message';
+  div.innerHTML='<span class="user">System:</span> '+text;
+  messages.appendChild(div);
+  messages.scrollTop=messages.scrollHeight;
+}
+
+function sendMessage(text){
+  if(!currentUser) return;
+  const div=document.createElement('div');
+  div.className='message';
+  div.innerHTML='<span class="user">'+displayName+':</span> '+text;
+  messages.appendChild(div);
+  messages.scrollTop=messages.scrollHeight;
+}
+
+function bindMessageInput(){
+  msgInput.addEventListener('keydown',e=>{
+    if(e.key==='Enter' && msgInput.value.trim()){
+      sendMessage(msgInput.value.trim());
+      msgInput.value='';
+    }
+  });
+}
+
+function renderServers(){
+  serversEl.innerHTML='';
+  servers.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='server';
+    d.textContent=n[0].toUpperCase();
+    d.title=n;
+    serversEl.appendChild(d);
+  });
+  const add=document.createElement('div');
+  add.className='server';
+  add.textContent='＋';
+  add.title='Создать сервер';
+  add.onclick=()=>{
+    const name=prompt('Название сервера');
+    if(name){
+      servers.push(name);
+      localStorage.setItem('servers',JSON.stringify(servers));
+      renderServers();
+    }
+  };
+  serversEl.appendChild(add);
+}
+
+function bindChannels(){
+  document.querySelectorAll('[data-channel]').forEach(el=>{
+    el.addEventListener('click',()=>openText(el.dataset.channel));
+  });
+  document.querySelectorAll('[data-dm]').forEach(el=>{
+    el.addEventListener('click',()=>openDM(el.dataset.dm));
+  });
+  document.querySelectorAll('[data-voice]').forEach(el=>{
+    el.addEventListener('click',toggleVoice);
+  });
+}
+
+function openText(name){
+  channelName.textContent=name;
+  messages.innerHTML='';
+  systemMsg('Вы в канале '+name);
+}
+
+function openDM(user){
+  channelName.textContent='💬 '+user;
+  messages.innerHTML='';
+  systemMsg('Личный чат с '+user);
+}
+
+async function toggleVoice(){
+  if(!currentUser){ return alert('Сначала войдите'); }
+  if(micStream){
+    micStream.getTracks().forEach(t=>t.stop());
+    micStream=null;
+    systemMsg('Вы вышли из голосового канала');
+    channelName.textContent='# общий';
+    return;
+  }
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+    channelName.textContent='🔊 Голосовой канал';
+    systemMsg('Микрофон включён (локально)');
+  }catch(e){
+    alert('Браузер не дал доступ к микрофону');
+  }
+}
+
+const avatar=document.getElementById('avatar');
+avatar.addEventListener('click',()=>{
+  const f=document.createElement('input');
+  f.type='file';
+  f.accept='image/*';
+  f.onchange=e=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    const img=document.createElement('img');
+    img.src=URL.createObjectURL(file);
+    avatar.innerHTML='';
+    avatar.appendChild(img);
+  };
+  f.click();
+});
+
+console.assert(typeof login==='function','login должна существовать');
+console.assert(typeof systemMsg==='function','systemMsg должна существовать');
+console.assert(typeof sendMessage==='function','sendMessage должна существовать');
+</script>
+
+</body>
+</html>
